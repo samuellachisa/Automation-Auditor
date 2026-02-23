@@ -1,4 +1,4 @@
-# Automaton Auditor – Week 2
+# Automaton Auditor
 
 Production-grade LangGraph "Digital Courtroom" for autonomous auditing of a GitHub repository and its architectural PDF report.
 
