@@ -1,0 +1,9 @@
+# Automaton Auditor – install with: pip install -r requirements.txt  or  uv sync
+langgraph>=0.2.0
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+langchain-anthropic>=0.2.0
+pydantic>=2.0
+python-dotenv>=1.0.0
+pymupdf>=1.24.0
+docling>=2.0.0
