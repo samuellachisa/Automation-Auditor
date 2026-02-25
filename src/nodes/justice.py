@@ -4,7 +4,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-from src.state import AgentState, Evidence, JudicialOpinion
+from src.state import (
+    AgentState,
+    AuditReport,
+    CriterionResult,
+    Evidence,
+    JudicialOpinion,
+)
 
 
 def _ensure_opinion(o: Any) -> JudicialOpinion:
@@ -17,6 +23,31 @@ def _ensure_evidence(e: Any) -> Evidence:
     if isinstance(e, Evidence):
         return e
     return Evidence.model_validate(e) if isinstance(e, dict) else e
+
+
+def evidence_missing_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Fallback node when critical evidence is missing.
+    Produces conservative JudicialOpinions per dimension so that ChiefJustice
+    can render a clear, failure-aware verdict.
+    """
+    dims = state.get("rubric_dimensions") or []
+    opinions: List[JudicialOpinion] = []
+    for d in dims:
+        dim_id = d.get("id", "unknown")
+        for judge in ("Prosecutor", "Defense", "TechLead"):
+            opinions.append(
+                JudicialOpinion(
+                    judge=judge,  # type: ignore[arg-type]
+                    criterion_id=dim_id,
+                    score=1,
+                    argument="Critical evidence for this criterion was missing; "
+                    "automatic minimum score applied.",
+                    cited_evidence=[],
+                )
+            )
+    # Merge with any existing opinions via reducer
+    return {"opinions": opinions}
 
 
 def chief_justice_node(state: AgentState) -> Dict[str, Any]:
@@ -36,8 +67,8 @@ def chief_justice_node(state: AgentState) -> Dict[str, Any]:
     for op in opinions:
         by_criterion.setdefault(op.criterion_id, []).append(op)
 
-    verdicts: List[Dict[str, Any]] = []
-    remediations: List[str] = []
+    criteria_results: List[CriterionResult] = []
+    remediation_lines: List[str] = []
 
     for dim in dimensions:
         dim_id = dim.get("id", "")
@@ -53,13 +84,26 @@ def chief_justice_node(state: AgentState) -> Dict[str, Any]:
 
         # Rule of Security: security flaw caps at 3
         if synthesis_rules.get("security_override"):
-            if any("security" in (o.argument or "").lower() or "os.system" in (o.argument or "").lower() for o in prosecutor_ops):
+            if any(
+                "security" in (o.argument or "").lower()
+                or "os.system" in (o.argument or "").lower()
+                for o in prosecutor_ops
+            ):
                 p_score = min(p_score, 3)
-                final_score = min(_resolve_score(p_score, d_score, t_score, prosecutor_ops, defense_ops, tech_ops), 3)
+                final_score = min(
+                    _resolve_score(
+                        p_score, d_score, t_score, prosecutor_ops, defense_ops, tech_ops
+                    ),
+                    3,
+                )
             else:
-                final_score = _resolve_score(p_score, d_score, t_score, prosecutor_ops, defense_ops, tech_ops)
+                final_score = _resolve_score(
+                    p_score, d_score, t_score, prosecutor_ops, defense_ops, tech_ops
+                )
         else:
-            final_score = _resolve_score(p_score, d_score, t_score, prosecutor_ops, defense_ops, tech_ops)
+            final_score = _resolve_score(
+                p_score, d_score, t_score, prosecutor_ops, defense_ops, tech_ops
+            )
 
         # Fact supremacy: if evidence says "not found" and Defense claimed depth, cap
         ev_list = evidences.get(dim_id) or []
@@ -67,22 +111,85 @@ def chief_justice_node(state: AgentState) -> Dict[str, Any]:
             if not any(e.found for e in ev_list) and d_score >= 4:
                 final_score = min(final_score, 3)
 
-        dissent = _summarize_dissent(prosecutor_ops, defense_ops, tech_ops, dim_name)
-        verdicts.append({
-            "criterion_id": dim_id,
-            "name": dim_name,
-            "score": final_score,
-            "dissent": dissent,
-            "prosecutor_score": p_score,
-            "defense_score": d_score,
-            "tech_lead_score": t_score,
-        })
-        remediations.extend(_remediation_for_criterion(dim_id, dim_name, final_score, ev_list, prosecutor_ops, tech_ops))
+        # Deeper PDF↔code cross-reference for report_accuracy
+        if dim_id == "report_accuracy" and ev_list:
+            mentioned_paths: List[str] = []
+            repo_paths: List[str] = []
+            for e in ev_list:
+                text = (e.content or "") or ""
+                if "src/" in text:
+                    for line in text.splitlines():
+                        line = line.strip()
+                        if line.startswith("src/"):
+                            if "architectural" in (e.goal or "").lower():
+                                repo_paths.append(line)
+                            else:
+                                mentioned_paths.append(line)
+            mentioned_set = set(mentioned_paths)
+            repo_set = set(repo_paths)
+            verified = sorted(mentioned_set & repo_set)
+            hallucinated = sorted(mentioned_set - repo_set)
+            # Penalize if many hallucinated paths and no verified ones
+            if hallucinated and not verified:
+                final_score = min(final_score, 2)
 
-    report_md = _render_report(state, verdicts, remediations)
+        dissent = _summarize_dissent(prosecutor_ops, defense_ops, tech_ops, dim_name)
+        per_dim_remediation = _remediation_for_criterion(
+            dim_id, dim_name, final_score, ev_list, prosecutor_ops, tech_ops
+        )
+        # Augment remediation with explicit verified vs hallucinated paths, if any
+        if dim_id == "report_accuracy" and ev_list:
+            if "verified" in locals() or "hallucinated" in locals():
+                if verified:
+                    per_dim_remediation.append("  - Verified report paths:")
+                    for p in verified:
+                        per_dim_remediation.append(f"    * {p}")
+                if hallucinated:
+                    per_dim_remediation.append("  - Hallucinated report paths (not in repo):")
+                    for p in hallucinated:
+                        per_dim_remediation.append(f"    * {p}")
+        remediation_lines.extend(per_dim_remediation)
+
+        criteria_results.append(
+            CriterionResult(
+                dimension_id=dim_id,
+                dimension_name=dim_name,
+                final_score=final_score,
+                judge_opinions=ops,
+                dissent_summary=dissent or None,
+                remediation="\n".join(per_dim_remediation)
+                if per_dim_remediation
+                else f"No remediation required for {dim_name} (score {final_score}/5).",
+            )
+        )
+
+    overall_score = (
+        sum(c.final_score for c in criteria_results) / len(criteria_results)
+        if criteria_results
+        else 0.0
+    )
+    repo_url = state.get("repo_url", "")
+    executive_summary = (
+        f"Overall score {overall_score:.2f}/5 across {len(criteria_results)} criteria. "
+        "See Criterion Breakdown for per-dimension verdicts, dissent, and remediation."
+    )
+    remediation_plan = "\n".join(remediation_lines) if remediation_lines else (
+        "No major remediation required based on current criteria scores."
+    )
+
+    audit_report = AuditReport(
+        repo_url=repo_url,
+        executive_summary=executive_summary,
+        overall_score=overall_score,
+        criteria=criteria_results,
+        remediation_plan=remediation_plan,
+    )
+
+    pdf_path = state.get("pdf_path", "")
+    report_md = _render_report(audit_report, pdf_path)
     output_dir = state.get("output_dir") or "audit/report_onself_generated"
     report_path = write_report_to_file(report_md, output_dir)
-    return {"final_report": report_path}
+    return {"final_report": audit_report, "final_report_path": report_path}
 
 
 def _get_synthesis_rules(state: AgentState) -> Dict[str, str]:
@@ -134,7 +241,7 @@ def _remediation_for_criterion(
     prosecutor_ops: List[JudicialOpinion],
     tech_ops: List[JudicialOpinion],
 ) -> List[str]:
-    out = []
+    out: List[str] = []
     if score <= 2:
         out.append(f"**{dim_name}**: Address gaps identified by Prosecutor and Tech Lead.")
         if prosecutor_ops:
@@ -144,12 +251,41 @@ def _remediation_for_criterion(
         for e in ev_list:
             if not e.found and e.location:
                 out.append(f"  - Ensure: {e.goal} at {e.location}")
+
+        # Additional, dimension-specific, file-level hints
+        if dim_id == "state_management_rigor":
+            out.append(
+                "  - In src/state.py, ensure AgentState uses Annotated reducers "
+                "for evidences (operator.ior) and opinions (operator.add)."
+            )
+        if dim_id == "graph_orchestration":
+            out.append(
+                "  - In src/graph.py, wire Detectives and Judges with parallel fan-out/fan-in "
+                "using StateGraph.add_edge / add_conditional_edges as per the rubric."
+            )
+        if dim_id == "safe_tool_engineering":
+            out.append(
+                "  - In src/tools/git_tools.py, keep git operations inside tempfile.TemporaryDirectory "
+                "and avoid raw os.system; rely on subprocess.run with validation."
+            )
+        if dim_id == "structured_output_enforcement":
+            out.append(
+                "  - In src/nodes/judges.py, ensure all LLM calls use with_structured_output(JudicialOpinion) "
+                "or bind_tools to enforce JSON schema with retry on failure."
+            )
+        if dim_id == "chief_justice_synthesis":
+            out.append(
+                "  - In src/nodes/justice.py, implement deterministic if/else rules for security_override, "
+                "fact_supremacy, functionality_weight, and variance_re_evaluation."
+            )
     return out
 
 
-def _render_report(state: AgentState, verdicts: List[Dict[str, Any]], remediations: List[str]) -> str:
-    repo_url = state.get("repo_url", "")
-    pdf_path = state.get("pdf_path", "")
+def _render_report(report: AuditReport, pdf_path: str) -> str:
+    """Serialize an AuditReport into Markdown."""
+    import os
+
+    repo_url = report.repo_url
     lines = [
         "# Automaton Auditor – Audit Report",
         "",
@@ -161,26 +297,48 @@ def _render_report(state: AgentState, verdicts: List[Dict[str, Any]], remediatio
         "",
         "## Executive Summary",
         "",
+        report.executive_summary,
+        "",
     ]
-    total = sum(v["score"] for v in verdicts)
-    max_total = 5 * len(verdicts)
-    lines.append(f"Overall: {total}/{max_total} across {len(verdicts)} criteria.")
-    lines.append("")
-    lines.append("## Criterion Breakdown")
-    lines.append("")
-    for v in verdicts:
-        lines.append(f"### {v['name']} — Score: {v['score']}/5")
+
+    # Optional LangSmith trace link (if provided via environment)
+    trace_url = os.getenv("LANGSMITH_RUN_URL")
+    if trace_url:
+        lines.append(f"LangSmith trace: {trace_url}")
         lines.append("")
-        lines.append(f"- Prosecutor: {v['prosecutor_score']} | Defense: {v['defense_score']} | Tech Lead: {v['tech_lead_score']}")
+
+    lines.extend(
+        [
+            "## Criterion Breakdown",
+            "",
+        ]
+    )
+    for c in report.criteria:
+        lines.append(f"### {c.dimension_name} — Score: {c.final_score}/5")
+        # Per-judge scores (if present)
+        p_score = next((o.score for o in c.judge_opinions if o.judge == "Prosecutor"), None)
+        d_score = next((o.score for o in c.judge_opinions if o.judge == "Defense"), None)
+        t_score = next((o.score for o in c.judge_opinions if o.judge == "TechLead"), None)
+        if any(s is not None for s in (p_score, d_score, t_score)):
+            lines.append("")
+            lines.append(
+                f"- Prosecutor: {p_score or '-'} | Defense: {d_score or '-'} | Tech Lead: {t_score or '-'}"
+            )
         lines.append("")
-        lines.append("**Dissent:** " + v["dissent"])
+        if c.dissent_summary:
+            lines.append("**Dissent:** " + c.dissent_summary)
+        else:
+            lines.append("**Dissent:** No significant disagreement recorded.")
         lines.append("")
+        if c.remediation:
+            lines.append("**Remediation:**")
+            lines.append(c.remediation)
+            lines.append("")
     lines.append("---")
     lines.append("")
     lines.append("## Remediation Plan")
     lines.append("")
-    for r in remediations:
-        lines.append(r)
+    lines.extend(report.remediation_plan.splitlines())
     lines.append("")
     return "\n".join(lines)
 

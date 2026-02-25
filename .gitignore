@@ -10,5 +10,5 @@ dist/
 .coverage
 htmlcov/
 audit/report_*/
+audit/pdf_cache/
 audit/langsmith_logs/
-rubric/

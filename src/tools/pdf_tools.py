@@ -9,24 +9,33 @@ CHUNK_OVERLAP = 200
 
 def ingest_pdf(path: str) -> Tuple[List[str], Optional[str]]:
     """
-    Extract text from PDF and return chunks. Uses Docling if available else PyMuPDF.
+    Extract text from PDF and return chunks. Uses PyMuPDF by default to avoid
+    docling/pdfium shutdown warnings; set USE_DOCLING=1 to use Docling instead.
     Returns (chunks, error). If error is not None, chunks may be partial.
     """
+    import os
     p = Path(path)
     if not p.exists():
         return [], f"File not found: {path}"
     try:
-        try:
-            from docling.document_converter import DocumentConverter
-            converter = DocumentConverter()
-            result = converter.convert(str(p))
-            doc = getattr(result, "document", result)
-            full_text = (getattr(doc, "export_to_markdown", None) or getattr(doc, "export_to_text", lambda: ""))() or ""
-        except ImportError:
-            import fitz  # PyMuPDF
+        use_docling = os.environ.get("USE_DOCLING", "").strip().lower() in ("1", "true", "yes")
+        full_text = ""
+        if use_docling:
+            try:
+                from docling.document_converter import DocumentConverter
+                converter = DocumentConverter()
+                result = converter.convert(str(p))
+                doc = getattr(result, "document", result)
+                full_text = (getattr(doc, "export_to_markdown", None) or getattr(doc, "export_to_text", lambda: ""))() or ""
+            except Exception:
+                full_text = ""
+        if not full_text.strip():
+            import fitz  # PyMuPDF (default: avoids docling/pdfium shutdown warning)
             doc = fitz.open(str(p))
-            full_text = "\n".join(page.get_text() for page in doc)
-            doc.close()
+            try:
+                full_text = "\n".join(page.get_text() for page in doc)
+            finally:
+                doc.close()
     except Exception as e:
         return [], str(e)
     if not full_text.strip():

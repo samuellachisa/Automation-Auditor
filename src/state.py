@@ -28,6 +28,32 @@ class JudicialOpinion(BaseModel):
     cited_evidence: List[str] = Field(default_factory=list, description="Evidence IDs or snippets cited")
 
 
+class CriterionResult(BaseModel):
+    """Final per-dimension ruling from the Chief Justice."""
+
+    dimension_id: str
+    dimension_name: str
+    final_score: int = Field(ge=1, le=5)
+    judge_opinions: List[JudicialOpinion]
+    dissent_summary: Optional[str] = Field(
+        default=None,
+        description="Required when score variance > 2",
+    )
+    remediation: str = Field(
+        description="Specific file-level instructions for improvement",
+    )
+
+
+class AuditReport(BaseModel):
+    """Overall audit report, before Markdown serialization."""
+
+    repo_url: str
+    executive_summary: str
+    overall_score: float
+    criteria: List[CriterionResult]
+    remediation_plan: str
+
+
 class AgentState(TypedDict, total=False):
     """State for the LangGraph auditor swarm. Use reducers for parallel-safe updates."""
 
@@ -39,4 +65,6 @@ class AgentState(TypedDict, total=False):
     # Reducers: parallel nodes merge instead of overwrite
     evidences: Annotated[Dict[str, List[Evidence]], operator.ior]
     opinions: Annotated[List[JudicialOpinion], operator.add]
-    final_report: str
+    # Chief Justice outputs
+    final_report: AuditReport
+    final_report_path: str

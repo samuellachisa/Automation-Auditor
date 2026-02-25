@@ -1,5 +1,7 @@
 """LangGraph StateGraph: Detectives (parallel) -> EvidenceAggregator -> Judges (parallel) -> ChiefJustice."""
 
+from typing import Any, Dict
+
 from langgraph.graph import END, START, StateGraph
 
 from src.state import AgentState
@@ -10,7 +12,15 @@ from src.nodes.detectives import (
     vision_inspector_node,
 )
 from src.nodes.judges import defense_node, prosecutor_node, tech_lead_node
-from src.nodes.justice import chief_justice_node
+from src.nodes.justice import chief_justice_node, evidence_missing_node
+
+
+def _judges_entry_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Simple pass-through node that fans out to all Judges.
+    Used so conditional routing from EvidenceAggregator maps to a single node.
+    """
+    return {}
 
 
 def build_auditor_graph():
@@ -32,20 +42,49 @@ def build_auditor_graph():
     builder.add_edge("DocAnalyst", "EvidenceAggregator")
     builder.add_edge("VisionInspector", "EvidenceAggregator")
 
-    # Layer 2: Judges (parallel)
+    # Layer 2: Judges (parallel) and failure-aware routing
     builder.add_node("Prosecutor", prosecutor_node)
     builder.add_node("Defense", defense_node)
     builder.add_node("TechLead", tech_lead_node)
+    builder.add_node("EvidenceMissing", evidence_missing_node)
+    builder.add_node("JudgesEntry", _judges_entry_node)
 
-    builder.add_edge("EvidenceAggregator", "Prosecutor")
-    builder.add_edge("EvidenceAggregator", "Defense")
-    builder.add_edge("EvidenceAggregator", "TechLead")
+    # Conditional edges: if critical evidence is missing, skip normal judges and
+    # route to EvidenceMissing; otherwise route to JudgesEntry which fans out.
+    def _evidence_status(state: AgentState) -> str:  # type: ignore[override]
+        evidences = (state.get("evidences") or {})  # type: ignore[assignment]
+        critical_ids = [
+            "git_forensic_analysis",
+            "state_management_rigor",
+            "graph_orchestration",
+            "safe_tool_engineering",
+        ]
+        for cid in critical_ids:
+            ev_list = evidences.get(cid) or []
+            if ev_list and not any(getattr(e, "found", False) for e in ev_list):
+                return "missing"
+        return "ok"
 
-    # Layer 3: Chief Justice (fan-in from all Judges)
+    builder.add_conditional_edges(
+        "EvidenceAggregator",
+        _evidence_status,
+        {
+            "ok": "JudgesEntry",
+            "missing": "EvidenceMissing",
+        },
+    )
+
+    # Fan-out from JudgesEntry to all Judges
+    builder.add_edge("JudgesEntry", "Prosecutor")
+    builder.add_edge("JudgesEntry", "Defense")
+    builder.add_edge("JudgesEntry", "TechLead")
+
+    # Layer 3: Chief Justice (fan-in from all Judges / EvidenceMissing)
     builder.add_node("ChiefJustice", chief_justice_node)
     builder.add_edge("Prosecutor", "ChiefJustice")
     builder.add_edge("Defense", "ChiefJustice")
     builder.add_edge("TechLead", "ChiefJustice")
+    builder.add_edge("EvidenceMissing", "ChiefJustice")
     builder.add_edge("ChiefJustice", END)
 
     return builder.compile()

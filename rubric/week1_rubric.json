@@ -1,0 +1,55 @@
+{
+  "rubric_metadata": {
+    "rubric_name": "Week 1: Automation Auditor – Intent, Context & Hooks",
+    "grading_target": "Week 1 agent repository (intent tracking, hooks, orchestration)",
+    "version": "1.0.0"
+  },
+  "dimensions": [
+    {
+      "id": "intent_ast_correlation",
+      "name": "Intent–AST Correlation",
+      "target_artifact": "github_repo",
+      "description": "How well the system produces a machine-readable trace that maps high-level intents to concrete code changes (AST/content hashes).",
+      "metric": "Intent-AST Correlation",
+      "score_1": "No machine-readable trace. Relies only on standard Git history; cannot correlate intents to specific code shapes.",
+      "score_3": "A trace file exists but classification is noisy or ad-hoc. Mapping between intents and code changes is partially correct but often inaccurate.",
+      "score_5": "agent_trace.jsonl (or equivalent) rigorously maps Intent IDs to content hashes / AST nodes. Cleanly distinguishes refactors from features using deterministic logic."
+    },
+    {
+      "id": "context_engineering",
+      "name": "Context Engineering",
+      "target_artifact": "github_repo",
+      "description": "How effectively the agent uses structured context to drive behavior without drifting or overloading prompts.",
+      "metric": "Context Engineering",
+      "score_1": "State/context files are handwritten and static. The agent often drifts from the source of truth; no reliable link between context and behavior.",
+      "score_3": "Hooks or scripts update state/context, but the architecture is brittle. Context is sometimes stale or over-broad; still mostly prompt-driven.",
+      "score_5": "Dynamic injection of an active_intents.yaml (or equivalent). The agent cannot act without referencing this context DB. Context is curated, filtered, and precise rather than a raw dump."
+    },
+    {
+      "id": "hook_architecture",
+      "name": "Hook Architecture",
+      "target_artifact": "github_repo",
+      "description": "How cleanly hooks are designed, isolated, and composed around the main execution flow.",
+      "metric": "Hook Architecture",
+      "score_1": "Hook logic is stuffed directly into the main execution loop (spaghetti). Cross-cutting concerns are interleaved with core logic.",
+      "score_3": "Hooks exist and work but are tightly coupled to the host application. Limited composability; failures can easily break the main flow.",
+      "score_5": "Clean middleware/interceptor pattern. Hooks are isolated from business logic, composable, and fail-safe (errors are contained and observable)."
+    },
+    {
+      "id": "orchestration",
+      "name": "Orchestration & Parallelism",
+      "target_artifact": "github_repo",
+      "description": "How well the system orchestrates concurrent work without collisions, using shared configuration as a coordination layer.",
+      "metric": "Orchestration",
+      "score_1": "Single-threaded or single-agent only. No orchestration beyond simple sequential steps.",
+      "score_3": "Attempts at parallelism exist but collide (race conditions, shared state clobbering). No robust coordination primitives.",
+      "score_5": "Parallel orchestration is demonstrated. Shared coordination artifacts (e.g., CLAUDE.md / central contract) prevent collisions. The system behaves as a 'Hive Mind' rather than independent, conflicting workers."
+    }
+  ],
+  "synthesis_rules": {
+    "fact_priority": "Prefer concrete artifacts (trace files, hook wiring, orchestration code) over narrative descriptions when scoring.",
+    "minimum_viable_trace": "If no machine-readable trace exists, cap the overall score at 3 regardless of other dimensions.",
+    "orchestration_guardrail": "If parallel orchestration repeatedly causes collisions, the Orchestration dimension cannot exceed 3 even if other aspects are strong."
+  }
+}
+
