@@ -9,19 +9,36 @@ from typing import List, Optional, Tuple
 
 def clone_repo(repo_url: str) -> Tuple[Optional[Path], Optional[str]]:
     """
-    Clone repository into a temporary directory. Safe: no shell, list args.
+    Obtain a repository working tree for analysis.
+
+    - If repo_url looks like a local path (or file:// URL), reuse it directly
+      (for CI / checked-out PRs).
+    - Otherwise, clone the remote repository into a temporary directory.
+
     Returns (repo_path, error_message). If success, error_message is None.
-    Caller must call cleanup_repo(path) when done.
+    Caller should call cleanup_repo(path) only for cloned repos (not local paths).
     """
     if not repo_url or not repo_url.strip():
         return None, "Empty repo URL"
+    repo_url = repo_url.strip()
     if ".." in repo_url or ";" in repo_url or "|" in repo_url or "`" in repo_url:
         return None, "Invalid characters in repo URL"
+
+    # Local repo support for CI: allow paths or file:// URLs
+    if repo_url.startswith("file://"):
+        local_path = Path(repo_url[len("file://") :])
+        if local_path.exists():
+            return local_path, None
+        return None, f"Local path from file:// does not exist: {local_path}"
+    local_candidate = Path(repo_url)
+    if local_candidate.exists():
+        return local_candidate, None
+
     tmpdir = tempfile.mkdtemp(prefix="auditor_clone_")
     path = Path(tmpdir)
     try:
         result = subprocess.run(
-            ["git", "clone", "--depth", "50", repo_url.strip(), str(path)],
+            ["git", "clone", "--depth", "50", repo_url, str(path)],
             capture_output=True,
             text=True,
             timeout=120,
@@ -77,6 +94,16 @@ def extract_git_history(repo_path: Path) -> Tuple[List[dict], Optional[str]]:
 
 
 def cleanup_repo(path: Optional[Path]) -> None:
-    """Remove a cloned repo directory (from clone_repo)."""
-    if path and path.exists():
-        shutil.rmtree(path, ignore_errors=True)
+    """
+    Remove a cloned repo directory (from clone_repo).
+    No-op for local paths outside our temporary prefix.
+    """
+    if not path:
+        return
+    try:
+        # Only clean up our own temporary clones
+        if path.exists() and path.name.startswith("auditor_clone_"):
+            shutil.rmtree(path, ignore_errors=True)
+    except Exception:
+        # Best-effort cleanup; ignore failures
+        pass

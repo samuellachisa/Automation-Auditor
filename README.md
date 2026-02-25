@@ -25,6 +25,7 @@ pip install -r requirements.txt
 - **Environment:** Copy `.env.example` to `.env` and set at least one of:
   - `OPENAI_API_KEY`
   - `ANTHROPIC_API_KEY`
+  - `GOOGLE_API_KEY` (Gemini via LangChain)
 
 Optional (LangSmith tracing):
 
@@ -35,23 +36,35 @@ Optional (LangSmith tracing):
 ## Run
 
 ```bash
-# From project root
+# From project root – remote repo
 python -m src.run_audit --repo-url https://github.com/org/repo --pdf-path /path/to/report.pdf
 
-# Optional
-python -m src.run_audit --repo-url URL --pdf-path PATH --output-dir audit/report_onself_generated --rubric-path rubric/week2_rubric.json
+# Local checkout (e.g. CI / PR): repo already cloned
+python -m src.run_audit --repo-url . --pdf-path /path/to/report.pdf
+
+# Optional flags
+python -m src.run_audit \
+  --repo-url URL_OR_PATH \
+  --pdf-path PATH \
+  --output-dir audit/report_onself_generated \
+  --rubric-profile week2 \
+  --ci
 ```
 
 With `uv` and the installed script:
 
 ```bash
-uv run run-audit --repo-url URL --pdf-path PATH
+# Week 2 (Automaton Auditor) rubric
+uv run run-audit --repo-url URL_OR_PATH --pdf-path PATH --rubric-profile week2
+
+# Week 1 rubric (intent, context, hooks)
+uv run run-audit --repo-url URL_OR_PATH --pdf-path PATH --rubric-profile week1
 ```
 
 ## Outputs
 
 - **Audit report:** Markdown file written to `--output-dir` (default: `audit/report_onself_generated/`), e.g. `audit_YYYYMMDD_HHMM.md`.
-- **LangSmith:** If tracing is enabled, open your LangSmith project to inspect the reasoning loop (Detectives → Judges → Chief Justice).
+- **LangSmith:** If tracing is enabled, open your LangSmith project to inspect the reasoning loop (Detectives → Judges → Chief Justice). Optionally set `LANGSMITH_RUN_URL` to have the current trace URL embedded into the generated report.
 
 ## Repository layout
 

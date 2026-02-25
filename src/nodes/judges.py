@@ -114,10 +114,23 @@ def _get_llm() -> BaseChatModel:
     import os
     from dotenv import load_dotenv
     load_dotenv()
+    # Local Ollama (e.g. OLLAMA_MODEL=qwen2.5); ensure Ollama is running: ollama run qwen2.5
+    if os.getenv("OLLAMA_MODEL"):
+        from langchain_ollama import ChatOllama
+        model = os.getenv("OLLAMA_MODEL", "qwen2.5")
+        base_url = os.getenv("OLLAMA_BASE_URL")  # e.g. http://localhost:11434
+        kwargs = {"model": model, "temperature": 0.2}
+        if base_url:
+            kwargs["base_url"] = base_url
+        return ChatOllama(**kwargs)
     if os.getenv("OPENAI_API_KEY"):
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
     if os.getenv("ANTHROPIC_API_KEY"):
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(model="claude-3-5-sonnet-20241022", temperature=0.2)
-    raise RuntimeError("Set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env")
+    if os.getenv("GOOGLE_API_KEY"):
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        return ChatGoogleGenerativeAI(model=model, temperature=0.2)
+    raise RuntimeError("Set OLLAMA_MODEL (local), OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY in .env")
