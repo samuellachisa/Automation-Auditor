@@ -112,19 +112,23 @@ def chief_justice_node(state: AgentState) -> Dict[str, Any]:
                 final_score = min(final_score, 3)
 
         # Deeper PDF↔code cross-reference for report_accuracy
+        # RepoInvestigator: location = repo path (dir), content = enumerated src/* paths
+        # DocAnalyst: location = pdf_path (.pdf), content = paths mentioned in report
         if dim_id == "report_accuracy" and ev_list:
             mentioned_paths: List[str] = []
             repo_paths: List[str] = []
             for e in ev_list:
                 text = (e.content or "") or ""
-                if "src/" in text:
-                    for line in text.splitlines():
-                        line = line.strip()
-                        if line.startswith("src/"):
-                            if "architectural" in (e.goal or "").lower():
-                                repo_paths.append(line)
-                            else:
-                                mentioned_paths.append(line)
+                if not text or "src/" not in text:
+                    continue
+                is_from_pdf = (e.location or "").lower().endswith(".pdf")
+                for line in text.splitlines():
+                    line = line.strip()
+                    if line.startswith("src/"):
+                        if is_from_pdf:
+                            mentioned_paths.append(line)
+                        else:
+                            repo_paths.append(line)
             mentioned_set = set(mentioned_paths)
             repo_set = set(repo_paths)
             verified = sorted(mentioned_set & repo_set)
