@@ -265,8 +265,8 @@ def _remediation_for_criterion(
             )
         if dim_id == "safe_tool_engineering":
             out.append(
-                "  - In src/tools/git_tools.py, keep git operations inside tempfile.TemporaryDirectory "
-                "and avoid raw os.system; rely on subprocess.run with validation."
+                "  - In src/tools/repo_tools.py (and underlying git tools), keep git operations "
+                "inside tempfile.TemporaryDirectory and avoid raw os.system; rely on subprocess.run with validation."
             )
         if dim_id == "structured_output_enforcement":
             out.append(

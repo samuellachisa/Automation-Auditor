@@ -9,6 +9,7 @@ dist/
 .pytest_cache/
 .coverage
 htmlcov/
-audit/report_*/
+audit/report_*/*.md
+!audit/report_*/.gitkeep
 audit/pdf_cache/
 audit/langsmith_logs/

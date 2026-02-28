@@ -4,14 +4,16 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from src.state import AgentState, Evidence
-from src.tools.ast_parser import (
+from src.tools.repo_tools import (
     analyze_graph_structure,
     analyze_state_structure,
+    cleanup_repo,
+    clone_repo,
+    extract_git_history,
     scan_judges_structured_output,
     scan_tools_for_sandbox,
 )
-from src.tools.git_tools import clone_repo, extract_git_history, cleanup_repo
-from src.tools.pdf_tools import ingest_pdf, query_chunks
+from src.tools.doc_tools import extract_paths_from_text, ingest_pdf, query_chunks
 from src.tools.vision import extract_images_from_pdf, analyze_diagram_with_vision
 
 
@@ -269,10 +271,8 @@ def doc_analyst_node(state: AgentState) -> Dict[str, Any]:
     keywords = ["Dialectical Synthesis", "Metacognition", "Fan-In", "Fan-Out", "State Synchronization"]
     found_terms = [k for k in keywords if k.lower() in full_text.lower()]
 
-    # Simple heuristic to pull file-like paths from the PDF text for report_accuracy
-    import re
-    path_pattern = re.compile(r"(src/[a-zA-Z0-9_\-/\.]+)")
-    mentioned_paths = sorted(set(path_pattern.findall(full_text)))
+    # Extract file paths from PDF for report_accuracy cross-reference
+    mentioned_paths = extract_paths_from_text(full_text)
 
     for d in dimensions:
         dim_id = d.get("id", "unknown")

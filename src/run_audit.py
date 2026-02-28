@@ -55,18 +55,23 @@ def main() -> None:
 
     if args.pdf_path and args.pdf_url:
         raise SystemExit("Use only one of --pdf-path or --pdf-url")
-    if not args.pdf_path and not args.pdf_url:
-        raise SystemExit("Provide either --pdf-path or --pdf-url")
 
+    # Determine PDF path, but allow runs without any PDF.
     if args.pdf_url:
         project_root = Path(__file__).resolve().parent.parent
         download_dir = project_root / "audit" / "pdf_cache"
         pdf_path = _download_pdf_from_url(args.pdf_url, download_dir)
         print(f"Downloaded PDF to {pdf_path}")
-    else:
+    elif args.pdf_path:
         pdf_path = args.pdf_path
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"PDF not found: {pdf_path}")
+    else:
+        pdf_path = ""
+        print(
+            "No PDF provided; pdf_report/pdf_images rubric dimensions will be skipped and "
+            "only GitHub repository evidence will be evaluated."
+        )
 
     if args.rubric_path:
         rubric_path = args.rubric_path
@@ -84,6 +89,14 @@ def main() -> None:
         raise FileNotFoundError(f"Rubric not found: {rubric_path}")
     rubric = load_rubric(rubric_path)
     dimensions = rubric.get("dimensions", [])
+    if not pdf_path:
+        # When no PDF is available, drop dimensions that target the PDF or its images
+        # so that DocAnalyst/VisionInspector simply no-op.
+        dimensions = [
+            d
+            for d in dimensions
+            if d.get("target_artifact") not in {"pdf_report", "pdf_images"}
+        ]
     synthesis_rules = rubric.get("synthesis_rules", {})
 
     initial_state = {
