@@ -24,6 +24,7 @@ vision = [
 
 [project.scripts]
 run-audit = "src.run_audit:main"
+import-peer-report = "src.import_peer_report:main"
 
 [build-system]
 requires = ["hatchling"]

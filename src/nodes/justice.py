@@ -1,8 +1,11 @@
 """Chief Justice: synthesis from judicial opinions with hardcoded rules. Report generation."""
 
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
+
+from pydantic import ValidationError
 
 from src.state import (
     AgentState,
@@ -11,6 +14,8 @@ from src.state import (
     Evidence,
     JudicialOpinion,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # Security flaw indicators: phrases/patterns in Prosecutor arguments that trigger
@@ -45,10 +50,32 @@ def _prosecutor_cites_security_flaw(argument: str) -> bool:
     return any(indicator.lower() in text for indicator in _SECURITY_INDICATORS)
 
 
-def _ensure_opinion(o: Any) -> JudicialOpinion:
+def _ensure_opinion(o: Any, fallback_judge: str = "TechLead", fallback_criterion: str = "unknown") -> JudicialOpinion | None:
+    """Normalize raw opinion to JudicialOpinion; return None if unrecoverable."""
     if isinstance(o, JudicialOpinion):
-        return o
-    return JudicialOpinion.model_validate(o) if isinstance(o, dict) else o
+        return _safe_opinion(o)
+    if isinstance(o, dict):
+        try:
+            op = JudicialOpinion.model_validate(o)
+            return _safe_opinion(op)
+        except (ValidationError, TypeError) as e:
+            logger.warning("Malformed opinion dict: %s", e)
+    return None
+
+
+def _safe_opinion(op: JudicialOpinion) -> JudicialOpinion:
+    """Clamp score to [1,5] and ensure required fields."""
+    score = getattr(op, "score", 3)
+    if not isinstance(score, (int, float)):
+        score = 3
+    score = max(1, min(5, int(score)))
+    return JudicialOpinion(
+        judge=op.judge,
+        criterion_id=op.criterion_id or "unknown",
+        score=score,
+        argument=op.argument or "No argument provided.",
+        cited_evidence=op.cited_evidence or [],
+    )
 
 
 def _ensure_evidence(e: Any) -> Evidence:
@@ -88,7 +115,11 @@ def chief_justice_node(state: AgentState) -> Dict[str, Any]:
     Output: final_report (Markdown path or content) and state update.
     """
     raw_opinions = state.get("opinions") or []
-    opinions = [_ensure_opinion(o) for o in raw_opinions]
+    opinions: List[JudicialOpinion] = []
+    for o in raw_opinions:
+        op = _ensure_opinion(o)
+        if op is not None:
+            opinions.append(op)
     raw_evidences = state.get("evidences") or {}
     evidences = {k: [_ensure_evidence(e) for e in v] for k, v in raw_evidences.items()}
     dimensions = state.get("rubric_dimensions") or []
@@ -110,9 +141,14 @@ def chief_justice_node(state: AgentState) -> Dict[str, Any]:
         defense_ops = [o for o in ops if o.judge == "Defense"]
         tech_ops = [o for o in ops if o.judge == "TechLead"]
 
+        # Default scores when judges did not produce opinions (partial/empty)
         p_score = prosecutor_ops[0].score if prosecutor_ops else 1
         d_score = defense_ops[0].score if defense_ops else 3
         t_score = tech_ops[0].score if tech_ops else 3
+        # Clamp any out-of-range scores from malformed opinions
+        p_score = max(1, min(5, int(p_score) if p_score is not None else 1))
+        d_score = max(1, min(5, int(d_score) if d_score is not None else 3))
+        t_score = max(1, min(5, int(t_score) if t_score is not None else 3))
 
         # Rule of Security: security flaw caps at 3
         if synthesis_rules.get("security_override"):
@@ -165,7 +201,11 @@ def chief_justice_node(state: AgentState) -> Dict[str, Any]:
             if hallucinated and not verified:
                 final_score = min(final_score, 2)
 
-        dissent = _summarize_dissent(prosecutor_ops, defense_ops, tech_ops, dim_name)
+        dissent = (
+            f"*No judge opinions received for {dim_name}; conservative default score applied.*"
+            if not ops
+            else _summarize_dissent(prosecutor_ops, defense_ops, tech_ops, dim_name)
+        )
         per_dim_remediation = _remediation_for_criterion(
             dim_id, dim_name, final_score, ev_list, prosecutor_ops, tech_ops
         )

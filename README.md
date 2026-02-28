@@ -96,6 +96,14 @@ uv run run-audit --repo-url URL_OR_PATH --pdf-path PATH --rubric-profile week1
 
 Each report is a Markdown serialization of the `AuditReport` model: Executive Summary, Criterion Breakdown (per rubric dimension with judge opinions and dissent), Remediation Plan.
 
+**Import peer-received report:** When a peer shares their audit of your repo, import it into `audit/report_bypeer_received/`:
+
+```bash
+uv run import-peer-report /path/to/peer_audit.md
+# Optional: custom output dir or filename
+uv run import-peer-report /path/to/peer_audit.md --output-dir audit/report_bypeer_received --name audit_from_peer_alice.md
+```
+
 ## Dynamic rubrics
 
 Detectives use **protocols** driven by rubric dimensions. Each dimension can specify `forensic_protocol` in the rubric JSON; otherwise a default mapping by dimension id is used.

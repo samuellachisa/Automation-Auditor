@@ -1,11 +1,17 @@
 """Judicial layer: Prosecutor, Defense, Tech Lead. Structured output only (JudicialOpinion)."""
 
+import logging
 from typing import Any, Dict, List, Literal
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage, HumanMessage
+from pydantic import ValidationError
 
 from src.state import AgentState, Evidence, JudicialOpinion
+
+logger = logging.getLogger(__name__)
+
+JUDGE_MAX_RETRIES = 2
 
 
 # System prompts for each persona (skeleton; judicial_logic from rubric is injected per dimension)
@@ -58,15 +64,47 @@ def _invoke_judge(llm: BaseChatModel, role: Literal["Prosecutor", "Defense", "Te
     logic = judicial_logic.get(logic_key, "")
     prompt = _get_judge_prompt(role, dimension, evidence_text, judicial_logic)
 
-    # Structured output: bind to JudicialOpinion
     structured_llm = llm.with_structured_output(JudicialOpinion)
     msg = HumanMessage(content=prompt)
-    out = structured_llm.invoke([SystemMessage(content=system), msg])
-    if isinstance(out, JudicialOpinion):
-        return out
-    if isinstance(out, dict):
-        return JudicialOpinion(**out)
-    raise ValueError("Judge must return JudicialOpinion")
+    last_err: Exception | None = None
+
+    for attempt in range(JUDGE_MAX_RETRIES + 1):
+        try:
+            out = structured_llm.invoke([SystemMessage(content=system), msg])
+            if isinstance(out, JudicialOpinion):
+                return _clamp_opinion(out)
+            if isinstance(out, dict):
+                return _clamp_opinion(JudicialOpinion(**out))
+            raise ValueError("Judge must return JudicialOpinion")
+        except (ValidationError, ValueError, TypeError) as e:
+            last_err = e
+            logger.warning(
+                "Judge %s malformed output for %s (attempt %d/%d): %s",
+                role, dim_id, attempt + 1, JUDGE_MAX_RETRIES + 1, e,
+            )
+            if attempt < JUDGE_MAX_RETRIES:
+                continue
+            # Final fallback
+            return JudicialOpinion(
+                judge=role,
+                criterion_id=dim_id,
+                score=3,
+                argument=f"Retry exhausted after malformed output: {last_err}",
+                cited_evidence=[],
+            )
+    raise RuntimeError("Unreachable")  # type: ignore[unreachable]
+
+
+def _clamp_opinion(op: JudicialOpinion) -> JudicialOpinion:
+    """Ensure score is in [1,5] and judge/criterion_id are valid."""
+    score = max(1, min(5, int(op.score) if op.score is not None else 3))
+    return JudicialOpinion(
+        judge=op.judge,
+        criterion_id=op.criterion_id or "unknown",
+        score=score,
+        argument=op.argument or "No argument provided.",
+        cited_evidence=op.cited_evidence or [],
+    )
 
 
 def prosecutor_node(state: AgentState) -> Dict[str, Any]:
