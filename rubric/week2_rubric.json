@@ -2,95 +2,72 @@
   "rubric_metadata": {
     "rubric_name": "Week 2: The Automaton Auditor Self-Evaluation",
     "grading_target": "Week 2 Auditor Repository & Architectural Report",
-    "version": "3.0.0"
+    "version": "4.0.0",
+    "critical_dimensions": [
+      "detective_layer_implementation",
+      "graph_orchestration_architecture",
+      "judicial_persona_structured_output",
+      "chief_justice_synthesis_engine",
+      "audit_report_artifacts"
+    ]
   },
   "dimensions": [
     {
-      "id": "git_forensic_analysis",
-      "name": "Git Forensic Analysis",
+      "id": "detective_layer_implementation",
+      "name": "Detective Layer Implementation",
       "target_artifact": "github_repo",
-      "forensic_instruction": "Run 'git log --oneline --reverse' on the cloned repository. Count the total number of commits. Check if the commit history tells a progression story: Environment Setup -> Tool Engineering -> Graph Orchestration. Extract all commit messages and timestamps. Flag if there is a single 'init' commit or a 'bulk upload' pattern with no iterative development.",
-      "success_pattern": "More than 3 commits showing clear progression from setup to tool engineering to graph orchestration. Atomic, step-by-step history with meaningful commit messages.",
-      "failure_pattern": "Single 'init' commit or bulk upload of all code at once. No iterative development visible. Timestamps clustered within minutes."
+      "total": 20,
+      "description": "Evaluates the implementation of forensic tools for evidence collection from the repository using robust parsing (AST), sandboxed cloning, and strict state management.",
+      "forensic_instruction": "Scan src/tools/ for cloning logic and src/state.py (or equivalent) for state definitions. Use AST parsing (not regex) to verify: (1) tempfile.TemporaryDirectory() or equivalent sandboxing for git clone; (2) subprocess.run() with error handling, no os.system(); (3) state uses Annotated with operator.add/operator.ior as reducers for parallel safety; (4) Evidence and JudicialOpinion as Pydantic BaseModel. Capture code snippets.",
+      "success_pattern": "Robust evidence collection using proper AST parsing, sandboxed git clone with error handling, and strict state management with reducers. All protocols from the rubric fully met.",
+      "failure_pattern": "Missing forensic tool implementation, raw os.system() calls, no sandboxing, plain dicts for state without reducers, or minimal file existence checks only."
     },
     {
-      "id": "state_management_rigor",
-      "name": "State Management Rigor",
-      "target_artifact": "github_repo",
-      "forensic_instruction": "Scan for 'src/state.py' or equivalent state definitions in 'src/graph.py'. Use AST parsing (not regex) to find classes inheriting from 'BaseModel' (Pydantic) or 'TypedDict'. Verify that the state actively maintains a collection of 'Evidence' objects and a list of 'JudicialOpinion' objects. Check for the use of 'operator.add' and 'operator.ior' as state reducers in 'Annotated' type hints to prevent data overwriting during parallel execution. Capture the full code snippet of the core 'AgentState' definition.",
-      "success_pattern": "'AgentState' uses TypedDict or BaseModel with Annotated reducers. 'Evidence' and 'JudicialOpinion' are Pydantic BaseModel classes with typed fields. Reducers like 'operator.add' (for lists) and 'operator.ior' (for dicts) are present.",
-      "failure_pattern": "Plain Python dicts used for state. No Pydantic models. No reducers, meaning parallel agents will overwrite each other's data."
-    },
-    {
-      "id": "graph_orchestration",
+      "id": "graph_orchestration_architecture",
       "name": "Graph Orchestration Architecture",
       "target_artifact": "github_repo",
-      "forensic_instruction": "Scan for the 'StateGraph' builder instantiation in 'src/graph.py'. Use AST parsing to analyze 'builder.add_edge()' and 'builder.add_conditional_edges()' calls. Determine if the Detectives (RepoInvestigator, DocAnalyst, VisionInspector) branch out from a single node and run concurrently (fan-out). Verify there is a synchronization node ('EvidenceAggregator' or equivalent) that collects all evidence before the Judges are invoked (fan-in). Verify the Judges (Prosecutor, Defense, TechLead) also fan-out in parallel from the aggregation node and fan-in before the ChiefJustice. Check for conditional edges that handle 'Evidence Missing' or 'Node Failure' scenarios. Capture the specific Python block defining the graph's nodes and edges.",
-      "success_pattern": "Two distinct parallel fan-out/fan-in patterns: one for Detectives, one for Judges. Conditional edges handle error states. Graph structure: START -> [Detectives in parallel] -> EvidenceAggregator -> [Judges in parallel] -> ChiefJustice -> END.",
-      "failure_pattern": "Purely linear flow (RepoInvestigator -> DocAnalyst -> Judge -> End). No parallel branches. No synchronization node. No conditional edges for error handling."
+      "total": 25,
+      "description": "Assesses the design and implementation of the StateGraph architecture including parallel fan-out/fan-in, conditional edges, and error handling of the orchestration flow.",
+      "forensic_instruction": "Scan src/graph.py for StateGraph builder. Use AST to analyze add_edge() and add_conditional_edges(). Verify: Detectives (RepoInvestigator, DocAnalyst, VisionInspector) fan-out from one node and run concurrently; synchronization node (EvidenceAggregator or equivalent) collects evidence before Judges; Judges (Prosecutor, Defense, TechLead) fan-out in parallel and fan-in before ChiefJustice; conditional edges for Evidence Missing / Node Failure.",
+      "success_pattern": "StateGraph fully implements parallel execution for detectives and judges, synchronization nodes, and conditional edge handling as per requirements.",
+      "failure_pattern": "Purely linear flow, no parallel branches, no synchronization node, no conditional edges for error handling. No StateGraph architecture."
     },
     {
-      "id": "safe_tool_engineering",
-      "name": "Safe Tool Engineering",
+      "id": "judicial_persona_structured_output",
+      "name": "Judicial Persona Differentiation & Structured Output",
       "target_artifact": "github_repo",
-      "forensic_instruction": "Scan 'src/tools/' for the repository cloning logic. Verify that 'tempfile.TemporaryDirectory()' or equivalent sandboxing is used for git clone operations. Check for raw 'os.system()' calls -- these are a security violation. Verify that 'subprocess.run()' or equivalent is used with proper error handling (capturing stdout/stderr, checking return codes). Ensure the cloned repo path is never the live working directory. Check that git authentication errors are handled gracefully. Capture the specific Python function responsible for executing the repository clone.",
-      "success_pattern": "All git operations run inside 'tempfile.TemporaryDirectory()'. 'subprocess.run()' used with error handling. No raw 'os.system()' calls. Authentication failures caught and reported.",
-      "failure_pattern": "Raw 'os.system(\"git clone <url>\")' drops code into the live working directory. No error handling around shell commands. No input sanitization on the repo URL."
+      "total": 20,
+      "description": "Evaluates the implementation of distinct judicial agents (Prosecutor, Defense, Tech Lead) with clear separation in system prompts and structured JSON output enforcement.",
+      "forensic_instruction": "Scan src/nodes/judges.py. Verify: (1) Prosecutor, Defense, Tech Lead have distinct adversarial system prompts (Prosecutor: gaps/security/laziness; Defense: effort/intent/workarounds; Tech Lead: architecture/maintainability). (2) LLMs invoked with .with_structured_output() or equivalent bound to JudicialOpinion schema (score, argument, cited_evidence). (3) Retry/error handling for malformed output.",
+      "success_pattern": "All three judge personas distinctly implemented with adversarial prompts and enforced structured output (.with_structured_output or equivalent) meeting the rubric.",
+      "failure_pattern": "No distinct judge agents, shared prompts, no structured output enforcement, freeform text parsing without Pydantic validation."
     },
     {
-      "id": "structured_output_enforcement",
-      "name": "Structured Output Enforcement",
-      "target_artifact": "github_repo",
-      "forensic_instruction": "Scan Judge nodes in 'src/nodes/judges.py'. Verify that LLMs are invoked using '.with_structured_output()' or '.bind_tools()' bound to the Pydantic 'JudicialOpinion' schema. Check that the output includes 'score' (int), 'argument' (str), and 'cited_evidence' (list). Verify there is retry logic or error handling if a Judge returns freeform text instead of structured JSON. Capture the code block responsible for querying the Judge LLMs.",
-      "success_pattern": "All Judge LLM calls use '.with_structured_output(JudicialOpinion)' or equivalent. Retry logic exists for malformed outputs. Output is validated against the Pydantic schema before being added to state.",
-      "failure_pattern": "Judge nodes call LLMs with plain prompts and parse freeform text responses. No Pydantic validation on output. No retry on parse failure."
-    },
-    {
-      "id": "judicial_nuance",
-      "name": "Judicial Nuance and Dialectics",
-      "target_artifact": "github_repo",
-      "forensic_instruction": "Scan 'src/nodes/judges.py' or prompt templates. Verify that Prosecutor, Defense, and Tech Lead personas have distinct, conflicting system prompts. Compare the three prompts -- if they share more than 50% of text, flag as 'Persona Collusion'. Check if the Prosecutor prompt includes adversarial language and instructions to look for gaps, security flaws, and laziness. Check if the Defense prompt includes instructions to reward effort, intent, and creative workarounds. Check if the Tech Lead prompt focuses on architectural soundness, maintainability, and practical viability. Verify the graph forces all three judges to run in parallel on the same evidence for each criterion.",
-      "success_pattern": "Three clearly distinct personas with conflicting philosophies. Prompts actively instruct the model to be adversarial (Prosecutor), forgiving (Defense), or pragmatic (Tech Lead). Judges produce genuinely different scores and arguments for the same evidence.",
-      "failure_pattern": "Single agent acts as 'The Grader' with no persona separation. Or three judges exist but share 90% of prompt text, producing near-identical outputs. Scores are random or purely praise/criticism without nuance."
-    },
-    {
-      "id": "chief_justice_synthesis",
+      "id": "chief_justice_synthesis_engine",
       "name": "Chief Justice Synthesis Engine",
       "target_artifact": "github_repo",
-      "forensic_instruction": "Scan 'src/nodes/justice.py' for the ChiefJusticeNode implementation. Verify the conflict resolution uses hardcoded deterministic Python logic, not just an LLM prompt. Check for these specific rules: (1) Rule of Security -- if the Prosecutor identifies a confirmed security vulnerability, the score is capped at 3 regardless of Defense arguments. (2) Rule of Evidence -- if the Defense claims 'Deep Metacognition' but Detective evidence shows the artifact is missing, the Defense is overruled. (3) Rule of Functionality -- if the Tech Lead confirms the architecture is modular, this carries the highest weight for the Architecture criterion. Check if score variance > 2 triggers a specific re-evaluation rule. Verify the output is a structured Markdown report, not a console print.",
-      "success_pattern": "Deterministic Python if/else logic implementing named rules (security override, fact supremacy, functionality weight). Score variance triggers specific re-evaluation. Output is a Markdown file with Executive Summary, Criterion Breakdown (with dissent), and Remediation Plan.",
-      "failure_pattern": "ChiefJustice is just another LLM prompt that averages the three judge scores. No hardcoded rules. No dissent summary. Output is console text or unstructured."
+      "total": 20,
+      "description": "Measures the implementation of a deterministic synthesis engine that aggregates judge opinions with hardcoded conflict resolution rules and produces a detailed final verdict.",
+      "forensic_instruction": "Scan src/nodes/justice.py for ChiefJusticeNode. Verify hardcoded deterministic Python logic (not LLM-only): (1) Security override - confirmed vulnerability caps score at 3; (2) Evidence supremacy - Defense hallucination overruled when evidence contradicts; (3) Functionality weight - Tech Lead architecture confirmation for Graph criterion; (4) Score variance > 2 triggers re-evaluation. Output is Markdown report.",
+      "success_pattern": "Implements hardcoded if/else conflict resolution, security override, fact supremacy, dissent requirement, and detailed Markdown report output.",
+      "failure_pattern": "ChiefJustice is just an LLM averaging scores. No hardcoded rules. No dissent summary. Console output only."
     },
     {
-      "id": "theoretical_depth",
-      "name": "Theoretical Depth (Documentation)",
-      "target_artifact": "pdf_report",
-      "forensic_instruction": "Search the PDF report for these specific terms: 'Dialectical Synthesis', 'Fan-In / Fan-Out', 'Metacognition', 'State Synchronization'. Determine if the term appears in a substantive architectural explanation or is just a buzzword dropped in the executive summary. Check if the report explains HOW the architecture executes these concepts, not just that they exist. Flag terms that appear without supporting explanation as 'Keyword Dropping'.",
-      "success_pattern": "Terms appear in detailed architectural explanations. The report explains how Dialectical Synthesis is implemented via three parallel judge personas. Fan-In/Fan-Out is tied to specific graph edges. Metacognition is connected to the system evaluating its own evaluation quality.",
-      "failure_pattern": "Terms appear only in the executive summary or introduction. No connection to actual implementation. 'We used Dialectical Synthesis' with no explanation of how."
-    },
-    {
-      "id": "report_accuracy",
-      "name": "Report Accuracy (Cross-Reference)",
-      "target_artifact": "pdf_report",
-      "forensic_instruction": "Extract all file paths mentioned in the PDF report (e.g., 'We isolated the AST logic in src/tools/ast_parser.py', 'We implemented parallel Judges in src/nodes/judges.py'). Cross-reference each claimed file path against the evidence collected by the RepoInvestigator. Build two lists: (1) Verified Paths -- files that the report mentions and actually exist in the repo. (2) Hallucinated Paths -- files the report claims exist but the RepoInvestigator found no evidence of. Flag any claims about features (e.g., 'We implemented parallel Judges') where the code evidence contradicts the claim.",
-      "success_pattern": "All file paths mentioned in the report exist in the repo. Feature claims match code evidence. Zero hallucinated paths.",
-      "failure_pattern": "Report references files that do not exist. Claims parallel execution but code shows linear flow. Multiple hallucinated paths detected."
-    },
-    {
-      "id": "swarm_visual",
-      "name": "Architectural Diagram Analysis",
-      "target_artifact": "pdf_images",
-      "forensic_instruction": "Extract images from the PDF report. Classify each diagram: is it an accurate LangGraph State Machine diagram, a sequence diagram, or just generic flowchart boxes? Check if the diagram explicitly visualizes the parallel split: START -> [Detectives in parallel] -> Evidence Aggregation -> [Prosecutor || Defense || TechLead in parallel] -> Chief Justice Synthesis -> END. Verify the diagram distinguishes between parallel branches and sequential steps. Flag diagrams that show a simple linear pipeline as 'Misleading Architecture Visual'.",
-      "success_pattern": "Diagram accurately represents the StateGraph with clear parallel branches for both Detectives and Judges. Fan-out and fan-in points are visually distinct. Flow matches the actual code architecture.",
-      "failure_pattern": "Generic box-and-arrow diagram with no indication of parallelism. Or no diagram present at all. Diagram shows linear flow that contradicts the parallel architecture claimed in the report."
+      "id": "audit_report_artifacts",
+      "name": "Generated Audit Report Artifacts",
+      "target_artifact": "github_repo",
+      "total": 15,
+      "description": "Assesses the final audit report output generated from the agent workflow. The report should be a production-grade Markdown file with executive summary, criterion breakdown, and remediation plan.",
+      "forensic_instruction": "Verify the audit report generation in src/nodes/justice.py produces a Markdown file with: Executive Summary, Criterion Breakdown (including dissent summaries per dimension), and actionable Remediation Plan. Check output path and serialization logic.",
+      "success_pattern": "Fully structured Markdown report with detailed executive summary, criterion breakdown (including dissent summaries), and actionable remediation steps.",
+      "failure_pattern": "No generated audit report, minimal/unstructured output, missing required sections, or no actionable remediation instructions."
     }
   ],
   "synthesis_rules": {
-    "security_override": "Confirmed security flaws (e.g., shell injection in git tools, raw os.system with unsanitized inputs) cap the total score at 3, overriding any effort points from the Defense.",
-    "fact_supremacy": "Forensic evidence (facts from Detectives) always overrules Judicial opinion (interpretation from Judges). If the Defense claims 'Deep Metacognition' but the RepoInvestigator found no supporting code, the Defense is overruled for hallucination.",
-    "functionality_weight": "If the Tech Lead confirms the architecture is modular and workable, this carries the highest weight for the 'Graph Orchestration Architecture' criterion.",
-    "dissent_requirement": "The Chief Justice must summarize why the Prosecutor and Defense disagreed in the final report. Every criterion with a score variance > 2 must include an explicit dissent explanation.",
-    "variance_re_evaluation": "If score variance across the three judges exceeds 2 for any criterion (e.g., Prosecutor says 1, Defense says 5), trigger a re-evaluation of the specific evidence cited by each judge before rendering the final score."
+    "security_override": "Confirmed security flaws (os.system, shell injection, path traversal, unsanitized input, no sandbox/tempfile) cap the total score at 3 regardless of Defense arguments.",
+    "fact_supremacy": "Forensic evidence from Detectives always overrules Judicial opinion. If Defense claims features but evidence shows missing, overrule for hallucination.",
+    "functionality_weight": "If Tech Lead confirms architecture is modular and workable, this carries highest weight for Graph Orchestration criterion.",
+    "dissent_requirement": "Chief Justice must summarize Prosecutor vs Defense disagreement. Every criterion with score variance > 2 must include explicit dissent explanation.",
+    "variance_re_evaluation": "If score variance across judges exceeds 2 for any criterion, trigger re-evaluation of cited evidence before rendering final score."
   }
 }

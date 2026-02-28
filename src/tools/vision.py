@@ -33,8 +33,8 @@ def _get_vision_llm():
     import os
     from dotenv import load_dotenv
     load_dotenv()
-    # Local Ollama vision model (set OLLAMA_VISION_MODEL=e.g. qwen2-vl or llava)
-    vision_model = os.getenv("OLLAMA_VISION_MODEL")
+    # Local Ollama: prefer OLLAMA_VISION_MODEL (e.g. llava, qwen2-vl), fall back to OLLAMA_MODEL
+    vision_model = os.getenv("OLLAMA_VISION_MODEL") or os.getenv("OLLAMA_MODEL")
     if vision_model:
         from langchain_ollama import ChatOllama
         base_url = os.getenv("OLLAMA_BASE_URL")
@@ -61,7 +61,7 @@ def analyze_diagram_with_vision(image_bytes: bytes, question: str = "Is this a S
         from langchain_core.messages import HumanMessage
         llm = _get_vision_llm()
         if llm is None:
-            return None, "Set GOOGLE_API_KEY or OPENAI_API_KEY for vision analysis"
+            return None, "Set OLLAMA_MODEL (or OLLAMA_VISION_MODEL), GOOGLE_API_KEY, or OPENAI_API_KEY for vision analysis"
         # Support both raw bytes and base64-encoded bytes
         if isinstance(image_bytes, bytes):
             b64 = base64.b64encode(image_bytes).decode("ascii")

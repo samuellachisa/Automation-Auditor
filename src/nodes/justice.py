@@ -13,6 +13,38 @@ from src.state import (
 )
 
 
+# Security flaw indicators: phrases/patterns in Prosecutor arguments that trigger
+# the security override (cap score at 3). Covers common vulnerabilities in tool code.
+_SECURITY_INDICATORS: List[str] = [
+    "security",
+    "os.system",
+    "os.popen",
+    "shell=true",
+    "shell=True",
+    "command injection",
+    "shell injection",
+    "code injection",
+    "path traversal",
+    "unsanitized",
+    "unsanitized input",
+    "eval(",
+    "exec(",
+    "pickle.loads",
+    "yaml.unsafe_load",
+    "live working directory",
+    "arbitrary code execution",
+    "privilege escalation",
+    "no sandbox",
+    "no tempfile",
+]
+
+
+def _prosecutor_cites_security_flaw(argument: str) -> bool:
+    """True if Prosecutor argument indicates a confirmed security vulnerability."""
+    text = (argument or "").lower()
+    return any(indicator.lower() in text for indicator in _SECURITY_INDICATORS)
+
+
 def _ensure_opinion(o: Any) -> JudicialOpinion:
     if isinstance(o, JudicialOpinion):
         return o
@@ -84,11 +116,7 @@ def chief_justice_node(state: AgentState) -> Dict[str, Any]:
 
         # Rule of Security: security flaw caps at 3
         if synthesis_rules.get("security_override"):
-            if any(
-                "security" in (o.argument or "").lower()
-                or "os.system" in (o.argument or "").lower()
-                for o in prosecutor_ops
-            ):
+            if any(_prosecutor_cites_security_flaw(o.argument or "") for o in prosecutor_ops):
                 p_score = min(p_score, 3)
                 final_score = min(
                     _resolve_score(
@@ -173,10 +201,7 @@ def chief_justice_node(state: AgentState) -> Dict[str, Any]:
         else 0.0
     )
     repo_url = state.get("repo_url", "")
-    executive_summary = (
-        f"Overall score {overall_score:.2f}/5 across {len(criteria_results)} criteria. "
-        "See Criterion Breakdown for per-dimension verdicts, dissent, and remediation."
-    )
+    executive_summary = _build_executive_summary(criteria_results, overall_score)
     remediation_plan = "\n".join(remediation_lines) if remediation_lines else (
         "No major remediation required based on current criteria scores."
     )
@@ -196,6 +221,65 @@ def chief_justice_node(state: AgentState) -> Dict[str, Any]:
     return {"final_report": audit_report, "final_report_path": report_path}
 
 
+def _build_executive_summary(
+    criteria_results: List[CriterionResult], overall_score: float
+) -> str:
+    """Build a detailed executive summary with score distribution and highlights."""
+    n = len(criteria_results)
+    if n == 0:
+        return "No criteria evaluated."
+    # Score distribution
+    counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    for c in criteria_results:
+        s = int(c.final_score)
+        if s in counts:
+            counts[s] += 1
+    dist_parts = [f"{s}×{counts[s]}" for s in (5, 4, 3, 2, 1) if counts[s] > 0]
+    dist_str = ", ".join(dist_parts) if dist_parts else "N/A"
+    # Strengths (4–5)
+    strengths = [c.dimension_name for c in criteria_results if c.final_score >= 4]
+    # Weaknesses (1–2)
+    weaknesses = [c.dimension_name for c in criteria_results if c.final_score <= 2]
+    lines = [
+        "| Metric | Value |",
+        "|:-------|:------|",
+        f"| **Overall Score** | **{overall_score:.2f}/5** |",
+        f"| Criteria Evaluated | {n} |",
+        f"| Score Distribution | {dist_str} |",
+        "",
+        "#### Strengths (score ≥ 4)",
+        "",
+    ]
+    if strengths:
+        lines.extend([
+            "| Criterion |",
+            "|:----------|",
+        ])
+        for s in strengths:
+            lines.append(f"| ✓ {s} |")
+    else:
+        lines.append("*None identified.*")
+    lines.extend([
+        "",
+        "#### Weaknesses (score ≤ 2)",
+        "",
+    ])
+    if weaknesses:
+        lines.extend([
+            "| Criterion |",
+            "|:----------|",
+        ])
+        for w in weaknesses:
+            lines.append(f"| ⚠ {w} |")
+    else:
+        lines.append("*None identified.*")
+    lines.extend([
+        "",
+        "*See Criterion Breakdown below for per-dimension verdicts, judge arguments, and remediation guidance.*",
+    ])
+    return "\n".join(lines)
+
+
 def _get_synthesis_rules(state: AgentState) -> Dict[str, str]:
     """Load synthesis_rules from rubric (passed in state)."""
     rules = state.get("rubric_synthesis_rules")
@@ -209,7 +293,11 @@ def _get_synthesis_rules(state: AgentState) -> Dict[str, str]:
 
 def _default_synthesis_rules() -> Dict[str, str]:
     return {
-        "security_override": "Confirmed security flaws (e.g., shell injection in git tools) cap total score at 3.",
+        "security_override": (
+            "Confirmed security flaws (os.system/os.popen, shell injection, unsanitized input, "
+            "eval/exec, pickle.loads, yaml.unsafe_load, live working dir, no sandbox, etc.) "
+            "cap total score at 3."
+        ),
         "fact_supremacy": "Forensic evidence (facts) always overrules Judicial opinion (interpretation).",
         "dissent_requirement": "The Chief Justice must summarize why the Prosecutor and Defense disagreed in the final report.",
     }
@@ -225,16 +313,28 @@ def _resolve_score(p: int, d: int, t: int, prosecutor_ops: List[JudicialOpinion]
     return max(1, min(5, round((p + d + 2 * t) / 4)))
 
 
-def _summarize_dissent(prosecutor_ops: List[JudicialOpinion], defense_ops: List[JudicialOpinion], tech_ops: List[JudicialOpinion], dim_name: str) -> str:
+def _summarize_dissent(
+    prosecutor_ops: List[JudicialOpinion],
+    defense_ops: List[JudicialOpinion],
+    tech_ops: List[JudicialOpinion],
+    dim_name: str,
+) -> str:
+    """Summarize judicial disagreement for inclusion in the report."""
     p = prosecutor_ops[0] if prosecutor_ops else None
     d = defense_ops[0] if defense_ops else None
     t = tech_ops[0] if tech_ops else None
-    parts = []
+    parts: List[str] = []
     if p and d:
-        parts.append(f"Prosecutor argued: {p.argument[:200]}... (score {p.score}). Defense argued: {d.argument[:200]}... (score {d.score}).")
+        p_arg = (p.argument or "").strip()
+        d_arg = (d.argument or "").strip()
+        parts.append(f"**Prosecutor** (score {p.score}): {p_arg[:500]}{'...' if len(p_arg) > 500 else ''}")
+        parts.append("")
+        parts.append(f"**Defense** (score {d.score}): {d_arg[:500]}{'...' if len(d_arg) > 500 else ''}")
     if t:
-        parts.append(f"Tech Lead: {t.argument[:150]}... (score {t.score}).")
-    return " ".join(parts) if parts else f"No dissent summary for {dim_name}."
+        t_arg = (t.argument or "").strip()
+        parts.append("")
+        parts.append(f"**Tech Lead** (score {t.score}): {t_arg[:400]}{'...' if len(t_arg) > 400 else ''}")
+    return "\n".join(parts) if parts else f"No dissent summary for {dim_name}."
 
 
 def _remediation_for_criterion(
@@ -285,64 +385,138 @@ def _remediation_for_criterion(
     return out
 
 
+def _score_badge(score: float) -> str:
+    """Return a visual badge for the score."""
+    s = int(round(score))
+    badges = {5: "🟢 Strong", 4: "🟢 Good", 3: "🟡 Adequate", 2: "🟠 Weak", 1: "🔴 Critical"}
+    return badges.get(s, str(s))
+
+
 def _render_report(report: AuditReport, pdf_path: str) -> str:
-    """Serialize an AuditReport into Markdown."""
+    """Serialize an AuditReport into well-formatted, table-driven Markdown."""
     import os
 
     repo_url = report.repo_url
+    gen_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    badge = _score_badge(report.overall_score)
+
+    trace_url = os.getenv("LANGSMITH_RUN_URL")
     lines = [
         "# Automaton Auditor – Audit Report",
         "",
-        f"**Repository:** {repo_url}",
-        f"**Report PDF:** {pdf_path}",
-        f"**Generated:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+        "> Production-grade audit of the Automaton Auditor repository against the Week 2 rubric.",
         "",
-        "---",
+        "### Report Metadata",
         "",
-        "## Executive Summary",
-        "",
-        report.executive_summary,
-        "",
+        "| Field | Value |",
+        "|:------|:------|",
+        f"| **Repository** | `{repo_url}` |",
+        f"| **Report PDF** | {pdf_path or 'N/A'} |",
+        f"| **Overall Score** | **{report.overall_score:.2f}/5** {badge} |",
+        f"| **Generated** | {gen_time} |",
     ]
-
-    # Optional LangSmith trace link (if provided via environment)
-    trace_url = os.getenv("LANGSMITH_RUN_URL")
     if trace_url:
-        lines.append(f"LangSmith trace: {trace_url}")
+        lines.append(f"| **Trace** | [LangSmith]({trace_url}) |")
+    lines.append("")
+    lines.extend(
+        [
+            "---",
+            "",
+            "## Table of Contents",
+            "",
+            "| # | Section |",
+            "|:--|:--------|",
+            "| 1 | [Executive Summary](#executive-summary) |",
+            "| 2 | [Criterion Overview](#criterion-overview) |",
+            "| 3 | [Criterion Breakdown](#criterion-breakdown) |",
+            "| 4 | [Remediation Plan](#remediation-plan) |",
+            "",
+            "---",
+            "",
+            "## Executive Summary",
+            "",
+            report.executive_summary,
+            "",
+            "---",
+            "",
+            "## Criterion Overview",
+            "",
+            "| # | Criterion | Score | Status |",
+            "|:--|:----------|------:|:------:|",
+        ]
+    )
+    for idx, c in enumerate(report.criteria, 1):
+        b = _score_badge(c.final_score)
+        lines.append(f"| {idx} | {c.dimension_name} | {c.final_score}/5 | {b} |")
+    lines.extend(["", "---", "", "## Criterion Breakdown", ""])
+
+    for idx, c in enumerate(report.criteria, 1):
+        badge = _score_badge(c.final_score)
+        lines.extend(
+            [
+                f"### {idx}. {c.dimension_name}",
+                "",
+                f"**Final score: {c.final_score}/5** {badge}",
+                "",
+                "#### Judge Scores",
+                "",
+                "| Role | Score |",
+                "|:-----|------:|",
+            ]
+        )
+        for o in c.judge_opinions:
+            lines.append(f"| {o.judge} | {o.score}/5 |")
+        lines.extend(
+            [
+                "",
+                "#### Judge Arguments",
+                "",
+                "| Role | Argument |",
+                "|:-----|:---------|",
+            ]
+        )
+        for o in c.judge_opinions:
+            arg = (o.argument or "").strip() or "*(No argument provided)*"
+            arg_escaped = arg.replace("|", "\\|").replace("\n", " ")[:400]
+            if len(arg) > 400:
+                arg_escaped += "..."
+            lines.append(f"| **{o.judge}** ({o.score}/5) | {arg_escaped} |")
+        lines.extend(
+            [
+                "",
+                "#### Dissent Summary",
+                "",
+            ]
+        )
+        if c.dissent_summary:
+            lines.append(c.dissent_summary)
+        else:
+            lines.append("*No significant disagreement recorded.*")
+        lines.append("")
+        if c.remediation and c.remediation.strip():
+            lines.append("#### Remediation")
+            lines.append("")
+            lines.extend(c.remediation.splitlines())
+            lines.append("")
+        lines.append("---")
         lines.append("")
 
     lines.extend(
         [
-            "## Criterion Breakdown",
+            "## Remediation Plan",
             "",
         ]
     )
-    for c in report.criteria:
-        lines.append(f"### {c.dimension_name} — Score: {c.final_score}/5")
-        # Per-judge scores (if present)
-        p_score = next((o.score for o in c.judge_opinions if o.judge == "Prosecutor"), None)
-        d_score = next((o.score for o in c.judge_opinions if o.judge == "Defense"), None)
-        t_score = next((o.score for o in c.judge_opinions if o.judge == "TechLead"), None)
-        if any(s is not None for s in (p_score, d_score, t_score)):
-            lines.append("")
-            lines.append(
-                f"- Prosecutor: {p_score or '-'} | Defense: {d_score or '-'} | Tech Lead: {t_score or '-'}"
-            )
+    rp = report.remediation_plan.strip()
+    if rp:
+        lines.append("**Consolidated action items across all dimensions:**")
         lines.append("")
-        if c.dissent_summary:
-            lines.append("**Dissent:** " + c.dissent_summary)
-        else:
-            lines.append("**Dissent:** No significant disagreement recorded.")
-        lines.append("")
-        if c.remediation:
-            lines.append("**Remediation:**")
-            lines.append(c.remediation)
-            lines.append("")
-    lines.append("---")
-    lines.append("")
-    lines.append("## Remediation Plan")
-    lines.append("")
-    lines.extend(report.remediation_plan.splitlines())
+        for line in report.remediation_plan.splitlines():
+            line = line.rstrip()
+            if line.strip():
+                lines.append(line)
+    else:
+        lines.append("*No major remediation required based on current criteria scores.*")
     lines.append("")
     return "\n".join(lines)
 
