@@ -62,6 +62,7 @@ class AgentState(TypedDict, total=False):
     output_dir: str
     rubric_dimensions: List[Dict[str, Any]]
     rubric_synthesis_rules: Dict[str, str]
+    rubric_critical_dimensions: List[str]
     # Reducers: parallel nodes merge instead of overwrite
     evidences: Annotated[Dict[str, List[Evidence]], operator.ior]
     opinions: Annotated[List[JudicialOpinion], operator.add]

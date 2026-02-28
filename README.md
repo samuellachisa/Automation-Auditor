@@ -80,6 +80,7 @@ uv run run-audit --repo-url URL_OR_PATH --pdf-path PATH --rubric-profile week1
 - `src/nodes/justice.py` – ChiefJusticeNode with hardcoded deterministic conflict resolution (security override, fact supremacy, dissent requirement).
 - `src/tools/repo_tools.py` – Forensic tools for repo analysis (clone, git history, AST/graph/sandbox/judges scans).
 - `src/tools/doc_tools.py` – PDF parsing and cross-referencing tools (ingest, query_chunks, extract_paths_from_text, cross_reference_paths).
+- `src/nodes/protocols.py` – Dynamic forensic protocol registry. Rubric dimensions can specify `forensic_protocol` to pick a protocol; otherwise a default mapping is used.
 
 **Infrastructure**
 
@@ -94,6 +95,28 @@ uv run run-audit --repo-url URL_OR_PATH --pdf-path PATH --rubric-profile week1
 - `audit/report_bypeer_received/` – Markdown reports your peer's agent generated when auditing your Week 2 repo.
 
 Each report is a Markdown serialization of the `AuditReport` model: Executive Summary, Criterion Breakdown (per rubric dimension with judge opinions and dissent), Remediation Plan.
+
+## Dynamic rubrics
+
+Detectives use **protocols** driven by rubric dimensions. Each dimension can specify `forensic_protocol` in the rubric JSON; otherwise a default mapping by dimension id is used.
+
+**Repo protocols:** `git_history`, `ast_state`, `ast_graph`, `sandbox_scan`, `judges_structured_output`, `repo_paths`, `code_reference`  
+**PDF protocols:** `pdf_keywords`, `pdf_paths`  
+**Vision protocols:** `vision_diagram`
+
+To add a custom rubric dimension with a known protocol:
+
+```json
+{
+  "id": "my_criterion",
+  "name": "My Criterion",
+  "target_artifact": "github_repo",
+  "forensic_protocol": "git_history",
+  "forensic_instruction": "..."
+}
+```
+
+Optional rubric_metadata: `critical_dimensions` – list of dimension ids that must have evidence before Judges run.
 
 ## PDF report
 

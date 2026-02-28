@@ -49,21 +49,24 @@ def build_auditor_graph():
     builder.add_node("EvidenceMissing", evidence_missing_node)
     builder.add_node("JudgesEntry", _judges_entry_node)
 
-    # Conditional edges: if critical evidence is missing, skip normal judges and
-    # route to EvidenceMissing; otherwise route to JudgesEntry which fans out.
+    # Conditional edges: if critical evidence is mostly missing, skip normal
+    # judges and route to EvidenceMissing; otherwise route to JudgesEntry.
+    # critical_ids come from rubric rubric_metadata.critical_dimensions or default.
+    # Require at least 2 of N critical dimensions to have found=True.
     def _evidence_status(state: AgentState) -> str:  # type: ignore[override]
         evidences = (state.get("evidences") or {})  # type: ignore[assignment]
-        critical_ids = [
+        critical_ids = state.get("rubric_critical_dimensions") or [
             "git_forensic_analysis",
             "state_management_rigor",
             "graph_orchestration",
             "safe_tool_engineering",
         ]
+        ok_count = 0
         for cid in critical_ids:
             ev_list = evidences.get(cid) or []
-            if ev_list and not any(getattr(e, "found", False) for e in ev_list):
-                return "missing"
-        return "ok"
+            if ev_list and any(getattr(e, "found", False) for e in ev_list):
+                ok_count += 1
+        return "ok" if ok_count >= 2 else "missing"
 
     builder.add_conditional_edges(
         "EvidenceAggregator",

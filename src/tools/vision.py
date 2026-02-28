@@ -19,7 +19,7 @@ def extract_images_from_pdf(path: str) -> Tuple[list, Optional[str]]:
         for i, page in enumerate(doc):
             for img in page.get_images():
                 xref = img[0]
-                base = page.extract_image(xref)
+                base = doc.extract_image(xref)
                 if base:
                     images.append({"page": i + 1, "bytes": base.get("image")})
         doc.close()

@@ -98,6 +98,13 @@ def main() -> None:
             if d.get("target_artifact") not in {"pdf_report", "pdf_images"}
         ]
     synthesis_rules = rubric.get("synthesis_rules", {})
+    rubric_metadata = rubric.get("rubric_metadata", {})
+    critical_dimensions = rubric_metadata.get("critical_dimensions") or [
+        "git_forensic_analysis",
+        "state_management_rigor",
+        "graph_orchestration",
+        "safe_tool_engineering",
+    ]
 
     initial_state = {
         "repo_url": args.repo_url,
@@ -105,6 +112,7 @@ def main() -> None:
         "output_dir": args.output_dir,
         "rubric_dimensions": dimensions,
         "rubric_synthesis_rules": synthesis_rules,
+        "rubric_critical_dimensions": critical_dimensions,
         "rubric_full": rubric,
         "evidences": {},
         "opinions": [],
