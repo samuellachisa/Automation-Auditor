@@ -2,14 +2,33 @@
 
 import argparse
 import json
+import logging
 import os
 import re
+from datetime import datetime
 from pathlib import Path
 from urllib.request import urlopen, Request
 
 from dotenv import load_dotenv
 
 from src.graph import build_auditor_graph
+
+
+def _configure_langsmith_logging(project_root: Path) -> None:
+    """Redirect LangSmith SDK output to audit/langsmith_logs/ instead of the terminal."""
+    langsmith_dir = project_root / "audit" / "langsmith_logs"
+    langsmith_dir.mkdir(parents=True, exist_ok=True)
+    log_file = langsmith_dir / f"langsmith_{datetime.now().strftime('%Y%m%d_%H%M')}.log"
+
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+
+    for logger_name in ("langsmith", "langsmith.utils", "langchain_core.tracers"):
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.DEBUG)
+        logger.addHandler(file_handler)
+        logger.propagate = False
 
 
 def load_rubric(path: str) -> dict:
@@ -35,6 +54,9 @@ def _download_pdf_from_url(url: str, dest_dir: Path) -> str:
 
 def main() -> None:
     load_dotenv()
+    project_root = Path(__file__).resolve().parent.parent
+    _configure_langsmith_logging(project_root)
+
     parser = argparse.ArgumentParser(description="Automaton Auditor – run swarm on repo + PDF")
     parser.add_argument("--repo-url", required=True, help="GitHub repository URL or local path to audit")
     parser.add_argument("--pdf-path", default=None, help="Path to architectural report PDF (local file)")
@@ -49,6 +71,11 @@ def main() -> None:
         "--ci",
         action="store_true",
         help="CI mode: also print a machine-readable AUDIT_SUMMARY line to stdout.",
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Print progress: each node (Detectives, Judges, Chief Justice) as it completes.",
     )
     parser.add_argument("--output-dir", default="audit/report_onself_generated", help="Directory to write audit report")
     args = parser.parse_args()
@@ -81,6 +108,7 @@ def main() -> None:
         rubric_filename = {
             "week1": "week1_rubric.json",
             "week2": "week2_rubric.json",
+            "week2_self": "week2_self_rubric.json",
         }.get(profile, "week2_rubric.json")
         rubric_path = str(
             Path(__file__).resolve().parent.parent / "rubric" / rubric_filename
@@ -119,9 +147,39 @@ def main() -> None:
     }
 
     graph = build_auditor_graph()
-    final_state = graph.invoke(initial_state)
+
+    if args.verbose:
+        print("\n--- Automaton Auditor ---")
+        print(f"Repo: {args.repo_url}")
+        print(f"PDF:  {pdf_path or '(none)'}")
+        print(f"Rubric: {rubric_path} ({len(dimensions)} dimensions)")
+        print("\n[1/3] Detectives collecting evidence (RepoInvestigator, DocAnalyst, VisionInspector)...")
+        report_path = ""
+        final_report = None
+        for chunk in graph.stream(initial_state, stream_mode="updates"):
+            # chunk is {node_name: output} per LangGraph stream_mode="updates"
+            for node_name, output in chunk.items():
+                print(f"      ✓ {node_name} completed")
+                if node_name == "EvidenceAggregator":
+                    print("\n[2/3] Judges deliberating (Prosecutor, Defense, Tech Lead)...")
+                elif node_name == "EvidenceMissing":
+                    print("      (Evidence insufficient; using fallback opinions)")
+                elif node_name in ("JudgesEntry", "Prosecutor", "Defense", "TechLead"):
+                    pass  # already announced in [2/3]
+                elif node_name == "ChiefJustice":
+                    print("      ✓ ChiefJustice synthesized verdict.")
+                    if isinstance(output, dict):
+                        report_path = output.get("final_report_path") or ""
+                        final_report = output.get("final_report")
+        print("\n[3/3] Done.\n")
+        final_state = {"final_report_path": report_path, "final_report": final_report}
+    else:
+        final_state = graph.invoke(initial_state)
+        report_path = ""
+        final_report = final_state.get("final_report")
+
     # Prefer explicit final_report_path, fall back to legacy final_report string
-    report_path = (
+    report_path = report_path or (
         final_state.get("final_report_path")
         or (final_state.get("final_report") if isinstance(final_state.get("final_report"), str) else "")
         or ""

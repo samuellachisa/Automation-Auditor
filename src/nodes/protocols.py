@@ -15,6 +15,12 @@ DEFAULT_REPO_PROTOCOLS: Dict[str, str] = {
     "report_accuracy": "repo_paths",  # when target_artifact=github_repo
     "judicial_nuance": "code_reference",
     "chief_justice_synthesis": "code_reference",
+    # Week 2 rubric v4
+    "detective_layer_implementation": "ast_state",
+    "graph_orchestration_architecture": "ast_graph",
+    "judicial_persona_structured_output": "judges_structured_output",
+    "chief_justice_synthesis_engine": "code_reference",
+    "audit_report_artifacts": "code_reference",
 }
 
 DEFAULT_PDF_PROTOCOLS: Dict[str, str] = {
